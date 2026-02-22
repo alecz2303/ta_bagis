@@ -6,8 +6,15 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
+    env:
+      COMPOSER_PROCESS_TIMEOUT: 0
+      COMPOSER_NO_INTERACTION: 1
+      COMPOSER_NO_AUDIT: 1
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -33,13 +40,23 @@ jobs:
         run: |
           RELEASE_ID=$(date +'%Y%m%d_%H%M%S')
           echo "RELEASE_ID=$RELEASE_ID" >> $GITHUB_ENV
+
+          # 🔥 CRITICAL: avoid recursive copy release/release/...
+          rm -rf release
           mkdir -p release
+
           rsync -a --delete \
             --exclude=".git" \
             --exclude=".github" \
             --exclude="node_modules" \
             --exclude="storage" \
             --exclude=".env" \
+            --exclude="release" \
+            --exclude="tests" \
+            --exclude="playwright-report" \
+            --exclude="test-results" \
+            --exclude=".idea" \
+            --exclude=".vscode" \
             ./ release/
 
       - name: FTP Upload release
