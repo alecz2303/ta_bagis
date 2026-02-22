@@ -1,0 +1,35 @@
+.env
+.env.testing
+.idea
+.php_cs.cache
+.phpunit.result.cache
+.vscode
+.vagrant
+*.hot
+/stubs
+/data
+/docker-compose-collection
+Homestead.json
+Homestead.yaml
+/ignorables/*
+/node_modules
+npm-debug.log
+# package-lock.json   <-- QUITA ESTA LINEA (no la ignores)
+# yarn.lock (si no lo usas, ok ignorarlo)
+# yarn-error.log
+
+/playwright-report
+/public/css
+/public/js
+/public/hot
+/public/storage
+/public/vendor
+/public/mix-manifest.json
+
+/lang/vendor
+/storage/*.key
+/storage/dcc-data/
+/test-results
+/vendor
+/test-results
+/playwright-report
