@@ -36,3 +36,6 @@ npm-debug.log
 
 # CI temp folder
 /release
+
+/dist
+/out

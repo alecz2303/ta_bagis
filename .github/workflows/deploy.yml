@@ -1,4 +1,4 @@
-name: Deploy Neubox (FTP) - Mix
+name: Deploy Neubox (FTP ZIP) - Mix
 
 on:
   workflow_dispatch:
@@ -36,14 +36,13 @@ jobs:
           npm ci
           npm run build
 
-      - name: Prepare release folder
+      - name: Prepare dist folder
         run: |
           RELEASE_ID=$(date +'%Y%m%d_%H%M%S')
           echo "RELEASE_ID=$RELEASE_ID" >> $GITHUB_ENV
 
-          # 🔥 CRITICAL: avoid recursive copy release/release/...
-          rm -rf release
-          mkdir -p release
+          rm -rf dist
+          mkdir -p dist
 
           rsync -a --delete \
             --exclude=".git" \
@@ -51,23 +50,33 @@ jobs:
             --exclude="node_modules" \
             --exclude="storage" \
             --exclude=".env" \
+            --exclude="dist" \
             --exclude="release" \
             --exclude="tests" \
             --exclude="playwright-report" \
             --exclude="test-results" \
             --exclude=".idea" \
             --exclude=".vscode" \
-            ./ release/
+            ./ dist/
 
-      - name: FTP Upload release
+      - name: Create release zip
+        run: |
+          ZIP_NAME="release_${{ env.RELEASE_ID }}.zip"
+          cd dist
+          zip -r "../$ZIP_NAME" . -q
+          cd ..
+          mkdir -p out
+          mv "$ZIP_NAME" out/
+
+      - name: FTP Upload ZIP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_HOST }}
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASS }}
-          local-dir: release/
-          server-dir: /ta_app/releases/${{ env.RELEASE_ID }}/
+          local-dir: out/
+          server-dir: /ta_app/incoming/
 
-      - name: Activate release (deploy.php)
+      - name: Extract and activate (deploy.php)
         run: |
           curl -fsS "${{ secrets.DEPLOY_URL }}?token=${{ secrets.DEPLOY_TOKEN }}&release=${{ env.RELEASE_ID }}"
