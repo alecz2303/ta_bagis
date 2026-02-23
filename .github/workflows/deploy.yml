@@ -81,4 +81,4 @@ jobs:
 
       - name: Extract and activate (deploy.php)
         run: |
-          curl -fsS "${{ secrets.DEPLOY_URL }}?token=${{ secrets.DEPLOY_TOKEN }}&release=${{ env.RELEASE_ID }}"
+          curl -sS "${{ secrets.DEPLOY_URL }}?token=${{ secrets.DEPLOY_TOKEN }}&release=${{ env.RELEASE_ID }}"
