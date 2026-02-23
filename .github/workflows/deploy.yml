@@ -74,8 +74,10 @@ jobs:
           server: ${{ secrets.FTP_HOST }}
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASS }}
+          protocol: ftps
+          port: 21
           local-dir: out/
-          server-dir: /ta_app/incoming/
+          server-dir: ta_app/incoming/
 
       - name: Extract and activate (deploy.php)
         run: |
