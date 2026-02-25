@@ -182,7 +182,7 @@ jobs:
         shell: bash
         run: |
           set -e
-          URL="${{ secrets.DEPLOY_URL }}?token=${{ secrets.DEPLOY_TOKEN }}&release=${{ env.RELEASE_ID }}&keep=5&nocache=$(date +%s)"
+          URL="${{ secrets.DEPLOY_URL }}?token=${{ secrets.DEPLOY_TOKEN }}&release=${{ env.RELEASE_ID }}&keep=3&nocache=$(date +%s)"
           echo "Calling: $URL"
 
           for i in 1 2 3 4 5 6; do
@@ -243,11 +243,11 @@ jobs:
           set -euo pipefail
 
           text=$(cat <<EOF
-          ❌ *Deploy FALLÓ*
-          • Release: *${{ env.RELEASE_ID }}*
-          • Run: ${{ env.RUN_URL }}
-          Abre el link y revisa el step que falló.
-          EOF
+            ❌ *Deploy FALLÓ*
+            • Release: *${{ env.RELEASE_ID }}*
+            • Run: ${{ env.RUN_URL }}
+            Abre el link y revisa el step que falló.
+            EOF
           )
 
           curl -sS -X POST "https://slack.com/api/chat.postMessage" \
