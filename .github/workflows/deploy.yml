@@ -92,9 +92,19 @@ jobs:
           local-dir: out/
           server-dir: /ta_app/incoming/
 
-      - name: Extract and activate (deploy.php)
+      - name: Extract and activate (deploy.php) - DEBUG
         run: |
-          curl -sS "${{ secrets.DEPLOY_URL }}?token=${{ secrets.DEPLOY_TOKEN }}&release=${{ env.RELEASE_ID }}"
+          set -e
+          URL="${{ secrets.DEPLOY_URL }}?token=${{ secrets.DEPLOY_TOKEN }}&release=${{ env.RELEASE_ID }}&keep=2&nocache=$(date +%s)"
+          echo "Calling: $URL"
+
+          curl -sS -D headers.txt -o body.txt -w "\nHTTP_CODE:%{http_code}\nURL_EFFECTIVE:%{url_effective}\nREDIRECT_URL:%{redirect_url}\n" "$URL" || true
+
+          echo "---- HEADERS ----"
+          sed -n '1,60p' headers.txt || true
+
+          echo "---- BODY (first 40 lines) ----"
+          sed -n '1,40p' body.txt || true
 
       - name: Notify Slack
         if: always()
