@@ -92,7 +92,7 @@ jobs:
           local-dir: out/
           server-dir: /ta_app/incoming/
 
-      - name: Extract and activate (deploy.php) with retry
+      - name: Extract and activate (deploy.php) with retry + verify
         run: |
           set -e
           URL="${{ secrets.DEPLOY_URL }}?token=${{ secrets.DEPLOY_TOKEN }}&release=${{ env.RELEASE_ID }}&keep=5&nocache=$(date +%s)"
@@ -103,29 +103,40 @@ jobs:
             code=$(curl -sS -D headers.txt -o body.txt -w "%{http_code}" "$URL" || true)
 
             echo "HTTP $code"
+            echo "---- HEADERS (first 30) ----"
+            sed -n '1,30p' headers.txt || true
+
+            # ✅ Verifica header único del deploy.php
+            if grep -qi "^x-deploy-script: 1" headers.txt; then
+              echo "Hit deploy.php ✅"
+            else
+              echo "NOT deploy.php ❌ (got app/html or proxy response)"
+            fi
+
             echo "---- BODY (first 20 lines) ----"
             sed -n '1,20p' body.txt || true
 
-            # 200 OK: deploy ejecutado
+            # Si NO es deploy.php, no cuenta como intento válido
+            if ! grep -qi "^x-deploy-script: 1" headers.txt; then
+              sleep $((i*6))
+              continue
+            fi
+
+            # OK real
             if [ "$code" = "200" ]; then
-              echo "Deploy OK"
-              exit 0
+              grep -q "OK: extracted + activated" body.txt && exit 0
+              echo "Deploy.php responded 200 but missing OK line" && exit 1
             fi
 
-            # 409: release ya existía, pero con deploy.php idempotente,
-            # lo ideal es que NO pase. Igual lo aceptamos para no bloquear.
+            # idempotente: 409 lo tomamos como OK (si tu deploy.php lo sigue usando en algún caso)
             if [ "$code" = "409" ]; then
-              echo "Deploy returned 409 (release existed). Treating as OK."
+              echo "Release existed; treating as OK."
               exit 0
             fi
 
-            # 503 o cualquier otro: retry con backoff
+            # 503 u otros: retry
             sleep $((i*6))
           done
 
           echo "Deploy failed after retries"
-          echo "---- HEADERS ----"
-          sed -n '1,60p' headers.txt || true
-          echo "---- BODY ----"
-          cat body.txt || true
           exit 1
