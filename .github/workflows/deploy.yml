@@ -48,6 +48,8 @@ jobs:
           npm run build
 
       - name: Prepare dist folder
+        env:
+          TZ: America/Mexico_City
         run: |
           RELEASE_ID=$(date +'%Y%m%d_%H%M%S')
           echo "RELEASE_ID=$RELEASE_ID" >> $GITHUB_ENV
