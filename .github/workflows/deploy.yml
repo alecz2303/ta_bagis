@@ -93,3 +93,12 @@ jobs:
       - name: Extract and activate (deploy.php)
         run: |
           curl -sS "${{ secrets.DEPLOY_URL }}?token=${{ secrets.DEPLOY_TOKEN }}&release=${{ env.RELEASE_ID }}"
+
+      - name: Notify Slack
+        if: always()
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+          --data "{
+            \"text\": \"🚀 Deploy ${GITHUB_REF_NAME} → ${{ job.status }}\"
+          }" \
+          ${{ secrets.SLACK_WEBHOOK_URL }}
