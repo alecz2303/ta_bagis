@@ -95,7 +95,7 @@ jobs:
       - name: Extract and activate (deploy.php) with retry + verify
         run: |
           set -e
-          URL="${{ secrets.DEPLOY_URL }}?token=${{ secrets.DEPLOY_TOKEN }}&release=${{ env.RELEASE_ID }}&keep=5&nocache=$(date +%s)"
+          URL="${{ secrets.DEPLOY_URL }}?token=${{ secrets.DEPLOY_TOKEN }}&release=${{ env.RELEASE_ID }}&keep=3&nocache=$(date +%s)"
           echo "Calling: $URL"
 
           for i in 1 2 3 4 5; do
