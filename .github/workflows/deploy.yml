@@ -2,6 +2,15 @@ name: Deploy Neubox (FTP ZIP) - Mix
 
 on:
   workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch a desplegar"
+        required: true
+        default: "master"
+      site:
+        description: "Sitio destino"
+        required: true
+        default: "todoartesanal"
 
 jobs:
   deploy:
@@ -15,6 +24,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
