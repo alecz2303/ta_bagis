@@ -88,7 +88,7 @@ jobs:
           protocol: ftps
           port: 21
           local-dir: out/
-          server-dir: ta_app/incoming/
+          server-dir: /ta_app/incoming/
 
       - name: Extract and activate (deploy.php)
         run: |
