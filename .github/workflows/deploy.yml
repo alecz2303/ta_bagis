@@ -20,6 +20,7 @@ jobs:
       COMPOSER_PROCESS_TIMEOUT: 0
       COMPOSER_NO_INTERACTION: 1
       COMPOSER_NO_AUDIT: 1
+      TZ: America/Mexico_City
 
     steps:
       - name: Checkout
@@ -48,11 +49,10 @@ jobs:
           npm run build
 
       - name: Prepare dist folder
-        env:
-          TZ: America/Mexico_City
         run: |
           RELEASE_ID=$(date +'%Y%m%d_%H%M%S')
           echo "RELEASE_ID=$RELEASE_ID" >> $GITHUB_ENV
+          echo "Release: $RELEASE_ID"
 
           rm -rf dist
           mkdir -p dist
@@ -92,25 +92,40 @@ jobs:
           local-dir: out/
           server-dir: /ta_app/incoming/
 
-      - name: Extract and activate (deploy.php) - DEBUG
+      - name: Extract and activate (deploy.php) with retry
         run: |
           set -e
-          URL="${{ secrets.DEPLOY_URL }}?token=${{ secrets.DEPLOY_TOKEN }}&release=${{ env.RELEASE_ID }}&keep=2&nocache=$(date +%s)"
+          URL="${{ secrets.DEPLOY_URL }}?token=${{ secrets.DEPLOY_TOKEN }}&release=${{ env.RELEASE_ID }}&keep=5&nocache=$(date +%s)"
           echo "Calling: $URL"
 
-          curl -sS -D headers.txt -o body.txt -w "\nHTTP_CODE:%{http_code}\nURL_EFFECTIVE:%{url_effective}\nREDIRECT_URL:%{redirect_url}\n" "$URL" || true
+          for i in 1 2 3 4 5; do
+            echo "Attempt $i..."
+            code=$(curl -sS -D headers.txt -o body.txt -w "%{http_code}" "$URL" || true)
 
+            echo "HTTP $code"
+            echo "---- BODY (first 20 lines) ----"
+            sed -n '1,20p' body.txt || true
+
+            # 200 OK: deploy ejecutado
+            if [ "$code" = "200" ]; then
+              echo "Deploy OK"
+              exit 0
+            fi
+
+            # 409: release ya existía, pero con deploy.php idempotente,
+            # lo ideal es que NO pase. Igual lo aceptamos para no bloquear.
+            if [ "$code" = "409" ]; then
+              echo "Deploy returned 409 (release existed). Treating as OK."
+              exit 0
+            fi
+
+            # 503 o cualquier otro: retry con backoff
+            sleep $((i*6))
+          done
+
+          echo "Deploy failed after retries"
           echo "---- HEADERS ----"
           sed -n '1,60p' headers.txt || true
-
-          echo "---- BODY (first 40 lines) ----"
-          sed -n '1,40p' body.txt || true
-
-      - name: Notify Slack
-        if: always()
-        run: |
-          curl -X POST -H 'Content-type: application/json' \
-          --data "{
-            \"text\": \"🚀 Deploy ${GITHUB_REF_NAME} → ${{ job.status }}\"
-          }" \
-          ${{ secrets.SLACK_WEBHOOK_URL }}
+          echo "---- BODY ----"
+          cat body.txt || true
+          exit 1
