@@ -22,11 +22,48 @@ jobs:
       COMPOSER_NO_AUDIT: 1
       TZ: America/Mexico_City
 
+      # Slack
+      SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+      SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.branch }}
+
+      # --- Slack: Start (creates the thread) ---
+      - name: Slack - Start thread
+        id: slack_start
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          text=$(cat <<EOF
+          🚀 *Deploy iniciado*
+          • Repo: *${{ github.repository }}*
+          • Branch: *${{ inputs.branch }}*
+          • Site: *${{ inputs.site }}*
+          • Run: ${{ env.RUN_URL }}
+          • Actor: *${{ github.actor }}*
+          EOF
+          )
+
+          resp=$(curl -sS -X POST "https://slack.com/api/chat.postMessage" \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            --data "$(jq -n --arg channel "${SLACK_CHANNEL_ID}" --arg text "$text" '{channel:$channel,text:$text}')")
+
+          ok=$(echo "$resp" | jq -r '.ok')
+          if [ "$ok" != "true" ]; then
+            echo "Slack API error: $resp"
+            exit 1
+          fi
+
+          ts=$(echo "$resp" | jq -r '.ts')
+          echo "SLACK_THREAD_TS=$ts" >> "$GITHUB_ENV"
+          echo "Thread ts: $ts"
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -49,7 +86,10 @@ jobs:
           npm run build
 
       - name: Prepare dist folder
+        shell: bash
         run: |
+          set -euo pipefail
+
           RELEASE_ID=$(date +'%Y%m%d_%H%M%S')
           echo "RELEASE_ID=$RELEASE_ID" >> $GITHUB_ENV
           echo "Release: $RELEASE_ID"
@@ -72,6 +112,29 @@ jobs:
             --exclude=".vscode" \
             ./ dist/
 
+      - name: Slack - Release prepared (thread)
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          text=$(cat <<EOF
+          🧾 *Release preparado*
+          • Release: *${{ env.RELEASE_ID }}*
+          EOF
+          )
+
+          # Post in thread if we have it
+          curl -sS -X POST "https://slack.com/api/chat.postMessage" \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            --data "$(jq -n \
+              --arg channel "${SLACK_CHANNEL_ID}" \
+              --arg text "$text" \
+              --arg thread_ts "${SLACK_THREAD_TS:-}" \
+              'if ($thread_ts|length)>0 then {channel:$channel,text:$text,thread_ts:$thread_ts} else {channel:$channel,text:$text} end')" \
+            >/dev/null
+
       - name: Create release zip
         run: |
           ZIP_NAME="release_${{ env.RELEASE_ID }}.zip"
@@ -92,51 +155,107 @@ jobs:
           local-dir: out/
           server-dir: /ta_app/incoming/
 
+      - name: Slack - ZIP uploaded (thread)
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          text=$(cat <<EOF
+          📦 *ZIP subido*
+          • ZIP: *release_${{ env.RELEASE_ID }}.zip*
+          • Destino: */ta_app/incoming/*
+          EOF
+          )
+
+          curl -sS -X POST "https://slack.com/api/chat.postMessage" \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            --data "$(jq -n \
+              --arg channel "${SLACK_CHANNEL_ID}" \
+              --arg text "$text" \
+              --arg thread_ts "${SLACK_THREAD_TS:-}" \
+              'if ($thread_ts|length)>0 then {channel:$channel,text:$text,thread_ts:$thread_ts} else {channel:$channel,text:$text} end')" \
+            >/dev/null
+
       - name: Extract and activate (deploy.php) with retry + verify
+        shell: bash
         run: |
           set -e
-          URL="${{ secrets.DEPLOY_URL }}?token=${{ secrets.DEPLOY_TOKEN }}&release=${{ env.RELEASE_ID }}&keep=3&nocache=$(date +%s)"
+          URL="${{ secrets.DEPLOY_URL }}?token=${{ secrets.DEPLOY_TOKEN }}&release=${{ env.RELEASE_ID }}&keep=5&nocache=$(date +%s)"
           echo "Calling: $URL"
 
-          for i in 1 2 3 4 5; do
+          for i in 1 2 3 4 5 6; do
             echo "Attempt $i..."
             code=$(curl -sS -D headers.txt -o body.txt -w "%{http_code}" "$URL" || true)
 
-            echo "HTTP $code"
-            echo "---- HEADERS (first 30) ----"
-            sed -n '1,30p' headers.txt || true
+            hit=$(grep -qi "^x-deploy-script: 1" headers.txt && echo yes || echo no)
+            echo "HTTP $code | deploy.php header: $hit"
 
-            # ✅ Verifica header único del deploy.php
-            if grep -qi "^x-deploy-script: 1" headers.txt; then
-              echo "Hit deploy.php ✅"
-            else
-              echo "NOT deploy.php ❌ (got app/html or proxy response)"
-            fi
-
-            echo "---- BODY (first 20 lines) ----"
-            sed -n '1,20p' body.txt || true
-
-            # Si NO es deploy.php, no cuenta como intento válido
-            if ! grep -qi "^x-deploy-script: 1" headers.txt; then
-              sleep $((i*6))
+            if [ "$hit" != "yes" ]; then
+              sleep $((i*8))
               continue
             fi
 
-            # OK real
             if [ "$code" = "200" ]; then
-              grep -q "OK: extracted + activated" body.txt && exit 0
-              echo "Deploy.php responded 200 but missing OK line" && exit 1
+              grep -q "OK:" body.txt && exit 0
+              echo "deploy.php 200 but missing OK line"
+              exit 1
             fi
 
-            # idempotente: 409 lo tomamos como OK (si tu deploy.php lo sigue usando en algún caso)
             if [ "$code" = "409" ]; then
-              echo "Release existed; treating as OK."
               exit 0
             fi
 
-            # 503 u otros: retry
-            sleep $((i*6))
+            sleep $((i*8))
           done
 
           echo "Deploy failed after retries"
           exit 1
+
+      - name: Slack - Deploy success (thread)
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          text=$(cat <<EOF
+          ✅ *Deploy OK*
+          • Release: *${{ env.RELEASE_ID }}*
+          • Run: ${{ env.RUN_URL }}
+          EOF
+          )
+
+          curl -sS -X POST "https://slack.com/api/chat.postMessage" \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            --data "$(jq -n \
+              --arg channel "${SLACK_CHANNEL_ID}" \
+              --arg text "$text" \
+              --arg thread_ts "${SLACK_THREAD_TS:-}" \
+              'if ($thread_ts|length)>0 then {channel:$channel,text:$text,thread_ts:$thread_ts} else {channel:$channel,text:$text} end')" \
+            >/dev/null
+
+      - name: Slack - Deploy failed (thread)
+        if: ${{ failure() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          text=$(cat <<EOF
+          ❌ *Deploy FALLÓ*
+          • Release: *${{ env.RELEASE_ID }}*
+          • Run: ${{ env.RUN_URL }}
+          Abre el link y revisa el step que falló.
+          EOF
+          )
+
+          curl -sS -X POST "https://slack.com/api/chat.postMessage" \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H "Content-Type: application/json; charset=utf-8" \
+            --data "$(jq -n \
+              --arg channel "${SLACK_CHANNEL_ID}" \
+              --arg text "$text" \
+              --arg thread_ts "${SLACK_THREAD_TS:-}" \
+              'if ($thread_ts|length)>0 then {channel:$channel,text:$text,thread_ts:$thread_ts} else {channel:$channel,text:$text} end')" \
+            >/dev/null
