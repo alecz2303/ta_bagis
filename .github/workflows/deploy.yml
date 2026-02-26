@@ -51,6 +51,19 @@ jobs:
         with:
           ref: ${{ inputs.branch }}
 
+      - name: Debug - Branch + Commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "INPUT branch: ${{ inputs.branch }}"
+          echo "GITHUB_REF: $GITHUB_REF"
+          echo "GITHUB_SHA: $GITHUB_SHA"
+          git status -sb || true
+          git rev-parse --abbrev-ref HEAD || true
+          echo "HEAD: $(git rev-parse HEAD)"
+          echo "Last commit:"
+          git --no-pager log -1 --oneline --decorate
+
       - name: Validate inputs
         shell: bash
         run: |
