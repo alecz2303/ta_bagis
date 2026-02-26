@@ -124,22 +124,6 @@ jobs:
           npm ci
           npm run build
 
-      - name: Publish assets (Bagisto + vendor)
-        shell: bash
-        env:
-          APP_ENV: production
-          APP_DEBUG: "false"
-          CACHE_DRIVER: array
-          SESSION_DRIVER: file
-          QUEUE_CONNECTION: sync
-          BROADCAST_DRIVER: log
-          LOG_CHANNEL: stderr
-        run: |
-          set -euo pipefail
-          php artisan storage:link || true
-          php artisan bagisto:publish --force || true
-          php artisan vendor:publish --force || true
-
       - name: Prepare dist folder
         shell: bash
         run: |
