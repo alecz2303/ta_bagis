@@ -72,6 +72,16 @@ jobs:
           tools: composer:v2
 
       - name: Composer install (prod)
+        env:
+          APP_ENV: production
+          APP_DEBUG: "false"
+          CACHE_DRIVER: array
+          SESSION_DRIVER: file
+          QUEUE_CONNECTION: sync
+          BROADCAST_DRIVER: log
+          REDIS_CLIENT: phpredis
+          REDIS_HOST: 127.0.0.1
+          REDIS_PORT: "6379"
         run: composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
 
       - name: Setup Node
