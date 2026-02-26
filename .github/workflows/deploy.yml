@@ -31,14 +31,22 @@ jobs:
       COMPOSER_NO_SCRIPTS: 1
       TZ: America/Mexico_City
 
-      # Evitar Redis/externos en el runner (para package:discover, etc.)
+      # Evitar Redis/externos en el runner (para artisan/package:discover, etc.)
       APP_ENV: production
       APP_DEBUG: "false"
+
+      # Laravel 11 usa CACHE_STORE (no CACHE_DRIVER)
+      CACHE_STORE: array
       CACHE_DRIVER: array
+
       SESSION_DRIVER: file
       QUEUE_CONNECTION: sync
       BROADCAST_DRIVER: log
       LOG_CHANNEL: stderr
+
+      # (extra, por si algún paquete lee redis vars, pero NO debería usarlas si CACHE_STORE=array)
+      REDIS_HOST: 127.0.0.1
+      REDIS_PORT: 6379
 
       # Slack
       SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -79,7 +87,6 @@ jobs:
           if [ "$keep" -gt 30 ]; then keep=30; fi
           echo "KEEP=$keep" >> "$GITHUB_ENV"
 
-      # --- Slack: Start (creates the thread) ---
       - name: Slack - Start thread
         id: slack_start
         shell: bash
@@ -131,7 +138,7 @@ jobs:
           set -euo pipefail
           mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache
 
-      - name: Prepare CI env (.env placeholder)
+      - name: Prepare CI env (.env placeholder + force cache store)
         shell: bash
         run: |
           set -euo pipefail
@@ -146,9 +153,34 @@ jobs:
             }
           '
 
+          # IMPORTANT: override anything from .env.example that sets redis
+          php -r '
+            $p = ".env";
+            $s = file_exists($p) ? file_get_contents($p) : "";
+            $repl = [
+              "APP_ENV" => "production",
+              "APP_DEBUG" => "false",
+              "CACHE_STORE" => "array",
+              "CACHE_DRIVER" => "array",
+              "SESSION_DRIVER" => "file",
+              "QUEUE_CONNECTION" => "sync",
+              "BROADCAST_DRIVER" => "log",
+              "LOG_CHANNEL" => "stderr",
+            ];
+            foreach ($repl as $k=>$v) {
+              if (preg_match("/^".$k."=.*/m", $s)) {
+                $s = preg_replace("/^".$k."=.*/m", $k."=".$v, $s);
+              } else {
+                $s .= "\n".$k."=".$v;
+              }
+            }
+            file_put_contents($p, trim($s)."\n");
+          '
+
+          echo "---- .env (sanitized preview) ----"
+          grep -E '^(APP_ENV|APP_DEBUG|CACHE_STORE|CACHE_DRIVER|SESSION_DRIVER|QUEUE_CONNECTION|BROADCAST_DRIVER|LOG_CHANNEL)=' .env || true
+
       - name: Composer install (prod) NO scripts
-        env:
-          COMPOSER_NO_SCRIPTS: 1
         run: composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader --no-scripts
 
       - name: Package discover (manual)
@@ -280,7 +312,6 @@ jobs:
             if [ "$code" = "200" ]; then
               grep -q "OK:" body.txt && exit 0
               echo "deploy.php 200 but missing OK line"
-              echo "---- BODY (first 120) ----"
               sed -n '1,120p' body.txt || true
               exit 1
             fi
@@ -289,15 +320,12 @@ jobs:
               exit 0
             fi
 
-            echo "---- BODY (first 80) ----"
             sed -n '1,80p' body.txt || true
             sleep $((i*8))
           done
 
           echo "Deploy failed after retries"
-          echo "---- HEADERS (first 60) ----"
           sed -n '1,60p' headers.txt || true
-          echo "---- BODY (first 160) ----"
           sed -n '1,160p' body.txt || true
           exit 1
 
