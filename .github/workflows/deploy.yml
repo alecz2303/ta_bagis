@@ -28,15 +28,17 @@ jobs:
       COMPOSER_PROCESS_TIMEOUT: 0
       COMPOSER_NO_INTERACTION: 1
       COMPOSER_NO_AUDIT: 1
+      COMPOSER_NO_SCRIPTS: 1
       TZ: America/Mexico_City
 
-      # Evitar Redis en el runner (para package:discover, etc.)
+      # Evitar Redis/externos en el runner (para package:discover, etc.)
       APP_ENV: production
       APP_DEBUG: "false"
       CACHE_DRIVER: array
       SESSION_DRIVER: file
       QUEUE_CONNECTION: sync
       BROADCAST_DRIVER: log
+      LOG_CHANNEL: stderr
 
       # Slack
       SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
@@ -53,8 +55,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          # keep must be int 2..30
           keep="${{ inputs.keep }}"
           if ! [[ "$keep" =~ ^[0-9]+$ ]]; then
             echo "Invalid keep: $keep"
@@ -103,19 +103,49 @@ jobs:
           php-version: "8.4"
           tools: composer:v2
 
-      # Install deps without scripts, then run discover manually under safe env
-      - name: Composer install (prod) no scripts
-        run: composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader --no-scripts
+      - name: Ensure writable dirs (CI)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache
 
       - name: Prepare CI env (.env placeholder)
         shell: bash
         run: |
           set -euo pipefail
           cp .env.example .env || true
-          php -r "file_exists('.env') || file_put_contents('.env', \"APP_KEY=base64:".base64_encode(random_bytes(32))."\\n\");"
 
-      - name: Package discover (manual)
-        run: php artisan package:discover --ansi
+          # Ensure APP_KEY exists
+          php -r '
+            $env = file_exists(".env") ? file_get_contents(".env") : "";
+            if (strpos($env, "APP_KEY=") === false) {
+              $key = "base64:" . base64_encode(random_bytes(32));
+              file_put_contents(".env", rtrim($env)."\nAPP_KEY=".$key."\n");
+            }
+          '
+
+      - name: Composer install (prod) NO scripts
+        env:
+          APP_ENV: production
+          APP_DEBUG: "false"
+          CACHE_DRIVER: array
+          SESSION_DRIVER: file
+          QUEUE_CONNECTION: sync
+          BROADCAST_DRIVER: log
+          LOG_CHANNEL: stderr
+          COMPOSER_NO_SCRIPTS: 1
+        run: composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader --no-scripts
+
+      - name: Package discover (manual, verbose)
+        env:
+          APP_ENV: production
+          APP_DEBUG: "false"
+          CACHE_DRIVER: array
+          SESSION_DRIVER: file
+          QUEUE_CONNECTION: sync
+          BROADCAST_DRIVER: log
+          LOG_CHANNEL: stderr
+        run: php artisan package:discover --ansi -vvv
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -160,7 +190,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           text=$(cat <<EOF
           🧾 *Release preparado*
           • Release: *${{ env.RELEASE_ID }}*
@@ -204,7 +233,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           text=$(cat <<EOF
           📦 *ZIP subido*
           • ZIP: *release_${{ env.RELEASE_ID }}.zip*
@@ -237,7 +265,6 @@ jobs:
             hit=$(grep -qi "^x-deploy-script: 1" headers.txt && echo yes || echo no)
             echo "HTTP $code | deploy.php header: $hit"
 
-            # If we didn't even reach deploy.php (proxy/html/503), retry
             if [ "$hit" != "yes" ]; then
               sleep $((i*8))
               continue
@@ -246,26 +273,25 @@ jobs:
             if [ "$code" = "200" ]; then
               grep -q "OK:" body.txt && exit 0
               echo "deploy.php 200 but missing OK line"
-              echo "---- BODY (first 80) ----"
-              sed -n '1,80p' body.txt || true
+              echo "---- BODY (first 120) ----"
+              sed -n '1,120p' body.txt || true
               exit 1
             fi
 
-            # allow 409 if idempotent activation happened
             if [ "$code" = "409" ]; then
               exit 0
             fi
 
-            echo "---- BODY (first 60) ----"
-            sed -n '1,60p' body.txt || true
+            echo "---- BODY (first 80) ----"
+            sed -n '1,80p' body.txt || true
             sleep $((i*8))
           done
 
           echo "Deploy failed after retries"
           echo "---- HEADERS (first 60) ----"
           sed -n '1,60p' headers.txt || true
-          echo "---- BODY (first 120) ----"
-          sed -n '1,120p' body.txt || true
+          echo "---- BODY (first 160) ----"
+          sed -n '1,160p' body.txt || true
           exit 1
 
       - name: Slack - Deploy success (thread)
@@ -273,7 +299,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           text=$(cat <<EOF
           ✅ *Deploy OK*
           • Branch: *${{ inputs.branch }}*
@@ -298,7 +323,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
           text=$(cat <<EOF
           ❌ *Deploy FALLÓ*
           • Branch: *${{ inputs.branch }}*
@@ -316,4 +340,4 @@ jobs:
               --arg text "$text" \
               --arg thread_ts "${SLACK_THREAD_TS:-}" \
               'if ($thread_ts|length)>0 then {channel:$channel,text:$text,thread_ts:$thread_ts} else {channel:$channel,text:$text} end')" \
-            >/dev/null  
+            >/dev/null
