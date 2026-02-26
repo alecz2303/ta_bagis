@@ -243,7 +243,7 @@ jobs:
           exit 1
 
       - name: Debug - cache default
-        run: php -r "require 'vendor/autoload.php'; \$app=require 'bootstrap/app.php'; \$app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap(); echo 'cache.default=' . config('cache.default') . PHP_EOL;"
+        # run: php -r "require 'vendor/autoload.php'; \$app=require 'bootstrap/app.php'; \$app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap(); echo 'cache.default=' . config('cache.default') . PHP_EOL;"
 
       - name: Wait for MySQL (CI)
         shell: bash
