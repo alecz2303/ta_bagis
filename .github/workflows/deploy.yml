@@ -23,6 +23,16 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
 
     env:
       COMPOSER_PROCESS_TIMEOUT: 0
@@ -182,6 +192,23 @@ jobs:
 
       - name: Composer install (prod) NO scripts
         run: composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader --no-scripts
+
+      - name: Wait for Redis (CI)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in {1..30}; do
+            if (echo -e "PING\r\n" | nc -w 1 127.0.0.1 6379 | grep -q PONG); then
+              echo "Redis OK"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Redis not reachable"
+          exit 1
+
+      - name: Debug - cache default
+        run: php -r "require 'vendor/autoload.php'; \$app=require 'bootstrap/app.php'; \$app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap(); echo 'cache.default=' . config('cache.default') . PHP_EOL;"
 
       - name: Package discover (manual)
         run: php artisan package:discover --ansi
