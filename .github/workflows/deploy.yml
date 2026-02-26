@@ -6,7 +6,7 @@ on:
       branch:
         description: "Branch a desplegar"
         required: true
-        default: "master"
+        default: "main"
       site:
         description: "Sitio destino"
         required: true
@@ -56,8 +56,10 @@ jobs:
         run: |
           set -euo pipefail
           echo "INPUT branch: ${{ inputs.branch }}"
-          echo "GITHUB_REF: $GITHUB_REF"
-          echo "GITHUB_SHA: $GITHUB_SHA"
+          echo "INPUT site:   ${{ inputs.site }}"
+          echo "INPUT keep:   ${{ inputs.keep }}"
+          echo "GITHUB_REF:   $GITHUB_REF"
+          echo "GITHUB_SHA:   $GITHUB_SHA"
           git status -sb || true
           git rev-parse --abbrev-ref HEAD || true
           echo "HEAD: $(git rev-parse HEAD)"
@@ -116,6 +118,13 @@ jobs:
           php-version: "8.4"
           tools: composer:v2
 
+      - name: Debug - Versions
+        shell: bash
+        run: |
+          php -v
+          composer -V
+          php artisan -V || true
+
       - name: Ensure writable dirs (CI)
         shell: bash
         run: |
@@ -139,26 +148,11 @@ jobs:
 
       - name: Composer install (prod) NO scripts
         env:
-          APP_ENV: production
-          APP_DEBUG: "false"
-          CACHE_DRIVER: array
-          SESSION_DRIVER: file
-          QUEUE_CONNECTION: sync
-          BROADCAST_DRIVER: log
-          LOG_CHANNEL: stderr
           COMPOSER_NO_SCRIPTS: 1
         run: composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader --no-scripts
 
-      - name: Package discover (manual, verbose)
-        env:
-          APP_ENV: production
-          APP_DEBUG: "false"
-          CACHE_DRIVER: array
-          SESSION_DRIVER: file
-          QUEUE_CONNECTION: sync
-          BROADCAST_DRIVER: log
-          LOG_CHANNEL: stderr
-        run: php artisan package:discover --ansi -vvv
+      - name: Package discover (manual)
+        run: php artisan package:discover --ansi
 
       - name: Setup Node
         uses: actions/setup-node@v4
