@@ -71,7 +71,13 @@ jobs:
           php-version: "8.4"
           tools: composer:v2
 
-      - name: Composer install (prod)
+      - name: Composer install (prod) no scripts
+        run: composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader --no-scripts
+
+      - name: Prepare CI env (no redis)
+        run: |
+          cp .env.example .env || true
+          php -r "file_exists('.env') || file_put_contents('.env', \"APP_KEY=base64:".base64_encode(random_bytes(32))."\\n\");"
         env:
           APP_ENV: production
           APP_DEBUG: "false"
@@ -79,10 +85,16 @@ jobs:
           SESSION_DRIVER: file
           QUEUE_CONNECTION: sync
           BROADCAST_DRIVER: log
-          REDIS_CLIENT: phpredis
-          REDIS_HOST: 127.0.0.1
-          REDIS_PORT: "6379"
-        run: composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
+
+      - name: Package discover (manual)
+        env:
+          APP_ENV: production
+          APP_DEBUG: "false"
+          CACHE_DRIVER: array
+          SESSION_DRIVER: file
+          QUEUE_CONNECTION: sync
+          BROADCAST_DRIVER: log
+        run: php artisan package:discover --ansi
 
       - name: Setup Node
         uses: actions/setup-node@v4
