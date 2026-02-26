@@ -34,6 +34,21 @@ jobs:
           --health-timeout 3s
           --health-retries 20
 
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: ta_ci
+          MYSQL_USER: ta
+          MYSQL_PASSWORD: ta
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 30
+
     env:
       COMPOSER_PROCESS_TIMEOUT: 0
       COMPOSER_NO_INTERACTION: 1
@@ -58,12 +73,32 @@ jobs:
       REDIS_HOST: 127.0.0.1
       REDIS_PORT: 6379
 
+      DB_CONNECTION: mysql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_DATABASE: ta_ci
+      DB_USERNAME: ta
+      DB_PASSWORD: ta
+
       # Slack
       SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
       SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
     steps:
+      - name: Force CI DB values into .env
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "DB_CONNECTION=mysql"
+            echo "DB_HOST=127.0.0.1"
+            echo "DB_PORT=3306"
+            echo "DB_DATABASE=ta_ci"
+            echo "DB_USERNAME=ta"
+            echo "DB_PASSWORD=ta"
+          } >> .env
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -209,6 +244,20 @@ jobs:
 
       - name: Debug - cache default
         run: php -r "require 'vendor/autoload.php'; \$app=require 'bootstrap/app.php'; \$app->make(Illuminate\\Contracts\\Console\\Kernel::class)->bootstrap(); echo 'cache.default=' . config('cache.default') . PHP_EOL;"
+
+      - name: Wait for MySQL (CI)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in {1..60}; do
+            if mysqladmin ping -h 127.0.0.1 -uroot -proot --silent; then
+              echo "MySQL OK"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "MySQL not reachable"
+          exit 1
 
       - name: Package discover (manual)
         run: php artisan package:discover --ansi
