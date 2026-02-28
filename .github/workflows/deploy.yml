@@ -151,6 +151,14 @@ jobs:
             --exclude=".vscode" \
             ./ dist/
 
+      - name: Verify vendor contains ramsey/uuid
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f dist/vendor/autoload.php
+          test -f dist/vendor/ramsey/uuid/src/functions.php
+          echo "OK: vendor + ramsey/uuid present in dist"
+
       - name: Slack - Release prepared (thread)
         if: ${{ always() }}
         shell: bash
