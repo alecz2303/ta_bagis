@@ -151,6 +151,14 @@ jobs:
             --exclude=".vscode" \
             ./ dist/
 
+      - name: Verify dist has vendor/autoload.php
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la dist | head -n 50
+          test -f dist/vendor/autoload.php
+          echo "OK dist/vendor/autoload.php exists"
+
       - name: Verify vendor contains ramsey/uuid
         shell: bash
         run: |
@@ -190,6 +198,14 @@ jobs:
           cd ..
           mkdir -p out
           mv "$ZIP_NAME" out/
+
+      - name: Verify ZIP includes vendor/autoload.php
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP="out/release_${{ env.RELEASE_ID }}.zip"
+          unzip -l "$ZIP" | grep -q "vendor/autoload.php"
+          echo "OK ZIP contains vendor/autoload.php"
 
       - name: Verify ZIP contains ramsey/uuid
         shell: bash
