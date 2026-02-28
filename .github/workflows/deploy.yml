@@ -150,6 +150,31 @@ jobs:
             --exclude=".idea" \
             --exclude=".vscode" \
             ./ dist/
+      
+      - name: Create storage placeholder (shared will be linked on server)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/storage/framework/{cache,sessions,views} dist/storage/logs dist/storage/app/public
+          touch dist/storage/logs/.gitkeep
+          echo "OK: storage placeholder created in dist"
+
+      - name: Verify dist structure (Laravel core)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Listing dist root:"
+          ls -la dist | head -n 80
+
+          test -f dist/artisan
+          test -f dist/bootstrap/app.php
+          test -d dist/routes
+          test -d dist/resources
+          test -f dist/public/index.php
+          test -f dist/vendor/autoload.php
+
+          echo "OK: dist has artisan + bootstrap/app.php + routes + resources + public/index.php + vendor/autoload.php"
 
       - name: Verify dist has vendor/autoload.php
         shell: bash
