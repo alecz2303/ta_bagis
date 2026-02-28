@@ -191,6 +191,14 @@ jobs:
           mkdir -p out
           mv "$ZIP_NAME" out/
 
+      - name: Verify ZIP contains ramsey/uuid
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP="out/release_${{ env.RELEASE_ID }}.zip"
+          unzip -l "$ZIP" | grep -q "vendor/ramsey/uuid/src/functions.php"
+          echo "OK: ZIP contains ramsey/uuid/src/functions.php"
+
       - name: FTP Upload ZIP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
