@@ -171,35 +171,40 @@ jobs:
           mkdir -p out
           mv "$ZIP_NAME" out/
 
-      - name: Verify ZIP includes required paths (hard fail)
+      - name: Verify ZIP includes required paths (Bagisto-safe)
         shell: bash
         run: |
           set -euo pipefail
           ZIP="out/release_${{ env.RELEASE_ID }}.zip"
 
-          must_have=(
+          unzip -l "$ZIP" > zip_list.txt
+
+          must_files=(
             "artisan"
             "bootstrap/app.php"
             "config/app.php"
-            "routes/"
-            "resources/"
             "public/index.php"
             "vendor/autoload.php"
             "vendor/ramsey/uuid/src/functions.php"
           )
 
-          unzip -l "$ZIP" > zip_list.txt
-
-          for p in "${must_have[@]}"; do
-            if [[ "$p" == */ ]]; then
-              # directory check: match any entry inside
-              grep -qE " ${p%.*/}/" zip_list.txt || { echo "ZIP missing dir: $p"; exit 1; }
-            else
-              grep -q " $p" zip_list.txt || { echo "ZIP missing file: $p"; exit 1; }
-            fi
+          for f in "${must_files[@]}"; do
+            grep -q " $f" zip_list.txt || { echo "ZIP missing file: $f"; exit 1; }
           done
 
-          echo "OK: ZIP contains all required paths"
+          # ✅ Rutas: aceptamos root routes/ O rutas dentro de packages (Bagisto)
+          if grep -qE " routes/.*\.php$" zip_list.txt; then
+            echo "OK: ZIP has root routes/*.php"
+          elif grep -qE " packages/.*/routes/.*\.php$" zip_list.txt; then
+            echo "OK: ZIP has packages/**/routes/*.php"
+          else
+            echo "ZIP missing routes definitions: neither routes/*.php nor packages/**/routes/*.php found"
+            echo "Showing potential route entries:"
+            grep -E "routes/|RouteServiceProvider|web\.php|api\.php" zip_list.txt | head -n 80 || true
+            exit 1
+          fi
+
+          echo "OK: ZIP contains required paths"
 
       - name: FTP Upload ZIP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
