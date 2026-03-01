@@ -630,7 +630,6 @@
                 },
                 "laravel": {
                     "providers": [
-                        "ApiPlatform\\Laravel\\ApiPlatformProvider",
                         "ApiPlatform\\Laravel\\ApiPlatformDeferredProvider",
                         "ApiPlatform\\Laravel\\Eloquent\\ApiPlatformEventProvider"
                     ]

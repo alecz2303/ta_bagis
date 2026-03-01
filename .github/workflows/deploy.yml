@@ -164,17 +164,24 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Listing dist root:"
-          ls -la dist | head -n 80
+          echo "dist root:"
+          ls -la dist | head -n 120
 
+          # Requeridos del core Laravel/Bagisto
           test -f dist/artisan
           test -f dist/bootstrap/app.php
+          test -d dist/bootstrap
           test -d dist/routes
           test -d dist/resources
+          test -d dist/config
+          test -d dist/app
+          test -d dist/public
           test -f dist/public/index.php
+
+          # Vendor debe existir porque NO hay SSH en prod
           test -f dist/vendor/autoload.php
 
-          echo "OK: dist has artisan + bootstrap/app.php + routes + resources + public/index.php + vendor/autoload.php"
+          echo "OK: dist has core folders + vendor/autoload.php"
 
       - name: Verify dist has vendor/autoload.php
         shell: bash
