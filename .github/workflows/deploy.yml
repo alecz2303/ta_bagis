@@ -27,13 +27,11 @@ jobs:
     env:
       TZ: America/Mexico_City
 
-      # Composer seguro para CI (sin scripts, sin auditorías, sin interacción)
       COMPOSER_PROCESS_TIMEOUT: 0
       COMPOSER_NO_INTERACTION: 1
       COMPOSER_NO_AUDIT: 1
       COMPOSER_NO_SCRIPTS: 1
 
-      # Slack
       SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
       SLACK_CHANNEL_ID: ${{ secrets.SLACK_CHANNEL_ID }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -43,19 +41,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.branch }}
-
-      - name: Debug - Branch + Commit
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "INPUT branch: ${{ inputs.branch }}"
-          echo "GITHUB_REF: $GITHUB_REF"
-          echo "GITHUB_SHA: $GITHUB_SHA"
-          git status -sb || true
-          git rev-parse --abbrev-ref HEAD || true
-          echo "HEAD: $(git rev-parse HEAD)"
-          echo "Last commit:"
-          git --no-pager log -1 --oneline --decorate
 
       - name: Validate inputs
         shell: bash
@@ -70,13 +55,11 @@ jobs:
           if [ "$keep" -gt 30 ]; then keep=30; fi
           echo "KEEP=$keep" >> "$GITHUB_ENV"
 
-      # --- Slack: Start (creates the thread) ---
       - name: Slack - Start thread
         id: slack_start
         shell: bash
         run: |
           set -euo pipefail
-
           text=$(cat <<EOF
           🚀 *Deploy iniciado*
           • Repo: *${{ github.repository }}*
@@ -87,7 +70,6 @@ jobs:
           • Actor: *${{ github.actor }}*
           EOF
           )
-
           resp=$(curl -sS -X POST "https://slack.com/api/chat.postMessage" \
             -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
             -H "Content-Type: application/json; charset=utf-8" \
@@ -98,10 +80,8 @@ jobs:
             echo "Slack API error: $resp"
             exit 1
           fi
-
           ts=$(echo "$resp" | jq -r '.ts')
           echo "SLACK_THREAD_TS=$ts" >> "$GITHUB_ENV"
-          echo "Thread ts: $ts"
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -109,7 +89,6 @@ jobs:
           php-version: "8.4"
           tools: composer:v2
 
-      # ✅ Instalamos dependencias PHP sin scripts (no boot, no Redis, no DB)
       - name: Composer install (prod) NO scripts
         run: composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader --no-scripts
 
@@ -124,11 +103,10 @@ jobs:
           npm ci
           npm run build
 
-      - name: Prepare dist folder
+      - name: Prepare dist folder (rsync)
         shell: bash
         run: |
           set -euo pipefail
-
           RELEASE_ID=$(date +'%Y%m%d_%H%M%S')
           echo "RELEASE_ID=$RELEASE_ID" >> "$GITHUB_ENV"
           echo "Release: $RELEASE_ID"
@@ -150,7 +128,7 @@ jobs:
             --exclude=".idea" \
             --exclude=".vscode" \
             ./ dist/
-      
+
       - name: Create storage placeholder (shared will be linked on server)
         shell: bash
         run: |
@@ -159,66 +137,28 @@ jobs:
           touch dist/storage/logs/.gitkeep
           echo "OK: storage placeholder created in dist"
 
-      - name: Verify dist structure (Laravel core)
+      - name: Verify dist has required Laravel/Bagisto structure
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "dist root:"
-          ls -la dist | head -n 120
-
-          # Requeridos del core Laravel/Bagisto
+          # Core
           test -f dist/artisan
           test -f dist/bootstrap/app.php
+          test -f dist/config/app.php
+          test -d dist/app
           test -d dist/bootstrap
+          test -d dist/config
           test -d dist/routes
           test -d dist/resources
-          test -d dist/config
-          test -d dist/app
           test -d dist/public
           test -f dist/public/index.php
 
-          # Vendor debe existir porque NO hay SSH en prod
-          test -f dist/vendor/autoload.php
-
-          echo "OK: dist has core folders + vendor/autoload.php"
-
-      - name: Verify dist has vendor/autoload.php
-        shell: bash
-        run: |
-          set -euo pipefail
-          ls -la dist | head -n 50
-          test -f dist/vendor/autoload.php
-          echo "OK dist/vendor/autoload.php exists"
-
-      - name: Verify vendor contains ramsey/uuid
-        shell: bash
-        run: |
-          set -euo pipefail
+          # Vendor (no SSH en prod)
           test -f dist/vendor/autoload.php
           test -f dist/vendor/ramsey/uuid/src/functions.php
-          echo "OK: vendor + ramsey/uuid present in dist"
 
-      - name: Slack - Release prepared (thread)
-        if: ${{ always() }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          text=$(cat <<EOF
-          🧾 *Release preparado*
-          • Release: *${{ env.RELEASE_ID }}*
-          EOF
-          )
-
-          curl -sS -X POST "https://slack.com/api/chat.postMessage" \
-            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
-            -H "Content-Type: application/json; charset=utf-8" \
-            --data "$(jq -n \
-              --arg channel "${SLACK_CHANNEL_ID}" \
-              --arg text "$text" \
-              --arg thread_ts "${SLACK_THREAD_TS:-}" \
-              'if ($thread_ts|length)>0 then {channel:$channel,text:$text,thread_ts:$thread_ts} else {channel:$channel,text:$text} end')" \
-            >/dev/null
+          echo "OK: dist is complete (core + vendor)"
 
       - name: Create release zip
         shell: bash
@@ -231,21 +171,35 @@ jobs:
           mkdir -p out
           mv "$ZIP_NAME" out/
 
-      - name: Verify ZIP includes vendor/autoload.php
+      - name: Verify ZIP includes required paths (hard fail)
         shell: bash
         run: |
           set -euo pipefail
           ZIP="out/release_${{ env.RELEASE_ID }}.zip"
-          unzip -l "$ZIP" | grep -q "vendor/autoload.php"
-          echo "OK ZIP contains vendor/autoload.php"
 
-      - name: Verify ZIP contains ramsey/uuid
-        shell: bash
-        run: |
-          set -euo pipefail
-          ZIP="out/release_${{ env.RELEASE_ID }}.zip"
-          unzip -l "$ZIP" | grep -q "vendor/ramsey/uuid/src/functions.php"
-          echo "OK: ZIP contains ramsey/uuid/src/functions.php"
+          must_have=(
+            "artisan"
+            "bootstrap/app.php"
+            "config/app.php"
+            "routes/"
+            "resources/"
+            "public/index.php"
+            "vendor/autoload.php"
+            "vendor/ramsey/uuid/src/functions.php"
+          )
+
+          unzip -l "$ZIP" > zip_list.txt
+
+          for p in "${must_have[@]}"; do
+            if [[ "$p" == */ ]]; then
+              # directory check: match any entry inside
+              grep -qE " ${p%.*/}/" zip_list.txt || { echo "ZIP missing dir: $p"; exit 1; }
+            else
+              grep -q " $p" zip_list.txt || { echo "ZIP missing file: $p"; exit 1; }
+            fi
+          done
+
+          echo "OK: ZIP contains all required paths"
 
       - name: FTP Upload ZIP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
@@ -269,7 +223,6 @@ jobs:
           • Destino: */ta_app/incoming/*
           EOF
           )
-
           curl -sS -X POST "https://slack.com/api/chat.postMessage" \
             -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
             -H "Content-Type: application/json; charset=utf-8" \
@@ -280,7 +233,7 @@ jobs:
               'if ($thread_ts|length)>0 then {channel:$channel,text:$text,thread_ts:$thread_ts} else {channel:$channel,text:$text} end')" \
             >/dev/null
 
-      - name: Extract and activate (deploy.php) with retry + verify
+      - name: Extract and activate (deploy.php) with retry + show body on failure
         shell: bash
         run: |
           set -euo pipefail
@@ -295,6 +248,9 @@ jobs:
             hit=$(grep -qi "^x-deploy-script: 1" headers.txt && echo yes || echo no)
             echo "HTTP $code | deploy.php header: $hit"
 
+            echo "---- BODY (first 160) ----"
+            sed -n '1,160p' body.txt || true
+
             if [ "$hit" != "yes" ]; then
               sleep $((i*8))
               continue
@@ -303,25 +259,13 @@ jobs:
             if [ "$code" = "200" ]; then
               grep -q "OK:" body.txt && exit 0
               echo "deploy.php 200 but missing OK line"
-              echo "---- BODY (first 120) ----"
-              sed -n '1,120p' body.txt || true
               exit 1
             fi
 
-            if [ "$code" = "409" ]; then
-              exit 0
-            fi
-
-            echo "---- BODY (first 80) ----"
-            sed -n '1,80p' body.txt || true
             sleep $((i*8))
           done
 
           echo "Deploy failed after retries"
-          echo "---- HEADERS (first 60) ----"
-          sed -n '1,60p' headers.txt || true
-          echo "---- BODY (first 160) ----"
-          sed -n '1,160p' body.txt || true
           exit 1
 
       - name: Slack - Deploy success (thread)
@@ -337,7 +281,6 @@ jobs:
           • Run: ${{ env.RUN_URL }}
           EOF
           )
-
           curl -sS -X POST "https://slack.com/api/chat.postMessage" \
             -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
             -H "Content-Type: application/json; charset=utf-8" \
@@ -353,15 +296,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo "Last deploy.php output:"
+          sed -n '1,180p' body.txt || true
+
           text=$(cat <<EOF
           ❌ *Deploy FALLÓ*
           • Branch: *${{ inputs.branch }}*
           • Release: *${{ env.RELEASE_ID }}*
           • Run: ${{ env.RUN_URL }}
-          Abre el link y revisa el step que falló.
+          Revisa el log del run. El body de deploy.php se imprimió en el step.
           EOF
           )
-
           curl -sS -X POST "https://slack.com/api/chat.postMessage" \
             -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
             -H "Content-Type: application/json; charset=utf-8" \
